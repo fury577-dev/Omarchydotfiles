@@ -1,0 +1,100 @@
+#!/bin/bash
+FILE="$HOME/.config/wallpapers.txt"
+
+if [[ "$1" == "-k" || "$1" == "--kill" ]]; then
+    pkill -f linux-wallpaperengine 2>/dev/null || true
+    exit 0
+fi
+
+if [[ "$1" == "-s" || "$1" == "--sync" ]]; then
+    STEAM_WS="$HOME/.local/share/Steam/steamapps/workshop/appworkshop_431960.acf"
+    if [[ -f "$STEAM_WS" ]]; then
+        grep -oP '^\s+"\K\d+(?="$)' "$STEAM_WS" | sort -n | uniq > "$FILE"
+        echo "Synced $(wc -l < "$FILE") wallpapers from Steam"
+    else
+        echo "Steam workshop file not found: $STEAM_WS"
+        exit 1
+    fi
+    exit 0
+fi
+
+if [[ "$1" == "-m" || "$1" == "--mute" || "$1" == "--silent" ]]; then
+    CURRENT=$(ps aux | grep "linux-wallpaperengine" | grep -v grep | grep -v wrapper | awk '{print $NF}')
+    if [[ -n "$CURRENT" && "$CURRENT" =~ ^[0-9]+$ ]]; then
+        pkill -f linux-wallpaperengine 2>/dev/null || true
+        nohup linux-wallpaperengine --screen-root eDP-1 --silent "$CURRENT" >/dev/null 2>&1 &
+    fi
+    exit 0
+fi
+
+CURRENT_FILE="$HOME/.config/wallpaper.current"
+
+get_next_id() {
+    mapfile -t WALLPAPERS < "$FILE"
+    TOTAL=${#WALLPAPERS[@]}
+    if (( TOTAL == 0 )); then
+        echo "No wallpapers found"
+        exit 1
+    fi
+    
+    if [[ -f "$CURRENT_FILE" ]]; then
+        CURRENT_ID=$(cat "$CURRENT_FILE")
+    else
+        CURRENT_ID=""
+    fi
+    
+    CURRENT_INDEX=-1
+    for i in "${!WALLPAPERS[@]}"; do
+        if [[ "${WALLPAPERS[$i]}" == "$CURRENT_ID" ]]; then
+            CURRENT_INDEX=$i
+            break
+        fi
+    done
+    
+    NEXT_INDEX=$(((CURRENT_INDEX + 1) % TOTAL))
+    echo "${WALLPAPERS[$NEXT_INDEX]}"
+}
+
+get_prev_id() {
+    mapfile -t WALLPAPERS < "$FILE"
+    TOTAL=${#WALLPAPERS[@]}
+    if (( TOTAL == 0 )); then
+        echo "No wallpapers found"
+        exit 1
+    fi
+    
+    if [[ -f "$CURRENT_FILE" ]]; then
+        CURRENT_ID=$(cat "$CURRENT_FILE")
+    else
+        CURRENT_ID=""
+    fi
+    
+    CURRENT_INDEX=-1
+    for i in "${!WALLPAPERS[@]}"; do
+        if [[ "${WALLPAPERS[$i]}" == "$CURRENT_ID" ]]; then
+            CURRENT_INDEX=$i
+            break
+        fi
+    done
+    
+    if (( CURRENT_INDEX == -1 )); then
+        PREV_INDEX=0
+    else
+        PREV_INDEX=$(((CURRENT_INDEX - 1 + TOTAL) % TOTAL))
+    fi
+    echo "${WALLPAPERS[$PREV_INDEX]}"
+}
+
+if [[ "$1" == "--next" || "$1" == "-n" ]]; then
+    ID=$(get_next_id)
+elif [[ "$1" == "--prev" || "$1" == "-p" ]]; then
+    ID=$(get_prev_id)
+elif [[ -z "$1" ]]; then
+    ID=$(get_next_id)
+else
+    ID="$1"
+fi
+
+echo "$ID" > "$CURRENT_FILE"
+pkill -f linux-wallpaperengine 2>/dev/null || true
+nohup linux-wallpaperengine --screen-root eDP-1 --volume 100 --noautomute "$ID" >/dev/null 2>&1 &
